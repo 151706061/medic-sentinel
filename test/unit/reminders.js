@@ -121,12 +121,15 @@ exports['runReminder decorates options with moment if found'] = function(test) {
 };
 
 exports['does not match reminder if in next minute'] = function(test) {
-    var window = sinon.stub(reminders, 'getReminderWindow').callsArgWithAsync(1, null, moment().subtract(1, 'hour')),
+    var past = moment().subtract(1, 'hour'),
         now = moment();
+
+    var window = sinon.stub(reminders, 'getReminderWindow').callsArgWithAsync(1, null, past);
 
     reminders.matchReminder({
         reminder: {
-            cron: (now.minutes() + 1) + ' ' + now.format('HH * * *') // will generate cron job matching the current hour but 1 minute into future
+             // generate cron job 1 minute into future
+            cron: now.clone().add(1, 'minute').format('m HH * * *')
         }
     }, function(err, matches) {
         test.equals(err, null);
@@ -162,11 +165,13 @@ exports['sendReminders calls getClinics'] = function(test) {
     });
 };
 
-exports['getClinics calls db.view'] = function(test) {
+exports['getClinics calls db view'] = function(test) {
     var db = {
-        view: function() {}
+        medic: {
+            view: function() {}
+        }
     };
-    sinon.stub(db, 'view').callsArgWith(3, null, {
+    sinon.stub(db.medic, 'view').callsArgWith(3, null, {
         rows: [
             {
                 doc: {
@@ -183,7 +188,7 @@ exports['getClinics calls db.view'] = function(test) {
         test.ok(_.isArray(clinics));
         test.equals(clinics.length, 1);
         test.equals(_.first(clinics).id, 'xxx');
-        test.ok(db.view.called);
+        test.ok(db.medic.view.called);
         test.done();
     });
 };
@@ -193,9 +198,11 @@ exports['getClinics ignores clinics with matching sent_reminders'] = function(te
         now = moment().startOf('hour');
 
     db = {
-        view: function() {}
+        medic: {
+            view: function() {}
+        }
     };
-    sinon.stub(db, 'view').callsArgWith(3, null, {
+    sinon.stub(db.medic, 'view').callsArgWith(3, null, {
         rows: [
             {
                 doc: {
@@ -425,10 +432,12 @@ exports['getReminderWindow returns a day ago when no results from db'] = functio
         time = moment().startOf('hour').subtract(1, 'day');
 
     db = {
-        view: function() {}
+        medic: {
+            view: function() {}
+        }
     };
 
-    view = sinon.stub(db, 'view').callsArgWithAsync(3, null, {
+    view = sinon.stub(db.medic, 'view').callsArgWithAsync(3, null, {
         rows: []
     });
 
@@ -443,15 +452,15 @@ exports['getReminderWindow returns a day ago when no results from db'] = functio
 };
 
 exports['getReminderWindow calls view looking for old events and returns date found'] = function(test) {
-    var db,
-        view,
-        now = moment();
+    var now = moment();
 
-    db = {
-        view: function() {}
+    var db = {
+        medic: {
+            view: function() {}
+        }
     };
 
-    view = sinon.stub(db, 'view').callsArgWithAsync(3, null, {
+    var view = sinon.stub(db.medic, 'view').callsArgWithAsync(3, null, {
         rows: [
             {
                 key: [ 'XXX', now.clone().subtract(1, 'hour').toISOString() ]
@@ -469,7 +478,7 @@ exports['getReminderWindow calls view looking for old events and returns date fo
             viewOpts = call.args[2];
 
         test.equals(view.callCount, 1);
-        test.equals(call.args[0], 'kujua-sentinel');
+        test.equals(call.args[0], 'medic');
         test.equals(call.args[1], 'sent_reminders');
 
         test.equals(viewOpts.limit, 1);

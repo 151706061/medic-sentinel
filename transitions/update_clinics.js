@@ -61,12 +61,15 @@ module.exports = {
 
         if (doc.refid) { // use reference id to find clinic if defined
             q.key = [ String(doc.refid) ];
-            db.medic.view('kujua-sentinel', 'clinic_by_refid', q, function(err, data) {
+            db.medic.view('medic', 'clinic_by_refid', q, function(err, data) {
                 if (err) {
                     return callback(err);
                 }
-                var row = _.first(data.rows);
-                var clinic = row && row.doc;
+                if (!data.rows.length) {
+                    // ref id not found
+                    return callback();
+                }
+                var clinic = data.rows[0].doc;
                 if (clinic.contact && clinic.contact._id) {
                     db.medic.get(clinic.contact._id, function(err, contact) {
                         if (err) {
@@ -80,12 +83,12 @@ module.exports = {
             });
         } else if (doc.from) {
             q.key = [ String(doc.from) ];
-            db.medic.view('kujua-sentinel', 'person_by_phone', q, function(err, data) {
-                var first = _.first(data.rows);
-                if (!first) {
+            q.include_docs = true;
+            db.medic.view('medic-client', 'people_by_phone', q, function(err, data) {
+                if (!data.rows.length) {
                     return callback();
                 }
-                associateContact(audit, doc, first.doc, callback);
+                associateContact(audit, doc, data.rows[0].doc, callback);
             });
         } else {
             return callback();

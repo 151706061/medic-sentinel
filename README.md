@@ -1,40 +1,111 @@
-Develop      | Master 
------------- | -------------
-[![Build Status](https://travis-ci.org/medic/medic-sentinel.png?branch=develop)](https://travis-ci.org/medic/medic-sentinel/branches) | [![Build Status](https://travis-ci.org/medic/medic-sentinel.png?branch=master)](https://travis-ci.org/medic/medic-sentinel/branches)
+[![Build Status](https://travis-ci.org/medic/medic-sentinel.png?branch=master)](https://travis-ci.org/medic/medic-sentinel)
 
 ## Install
 
 Get node deps with  `npm install`.
 
-## Settings
-
-Export a `COUCH_URL` env variable so sentinel knows what database to use. e.g.
-
-```
-export COUCH_URL='http://root:123qwe@localhost:5984/medic'
-```
-
-Sentinel works with Medic Mobile and listens to changes on the database. It is 
-configured through the dashboard Medic Mobile app settings screen.
-
-Default settings values are in `defaults.js`.
-
 ## Run
 
-`node ./server.js`
+`node server.js`
 
 Debug mode:
 
-`node ./server.js debug`
+`node server.js debug`
 
 ## Run Tests
 
 `grunt test`
 
+
+## Overview
+
+Sentinel uses the changes feed on a CouchDB database and runs a set of
+transitions on a document.  It also manages some scheduled tasks like message
+schedules.
+
+## Settings
+
+Export a `COUCH_URL` env variable so sentinel knows what database to use. e.g.
+
+```bash
+export COUCH_URL='http://root:123qwe@localhost:5984/medic'
+```
+
+Throughout this document we will be refering to `ddoc`. Here we mean the currently deployed `_design/medic` ddoc from medic-webapp.
+
+Default settings values are in `defaults.js`.  On initial start, and when there
+are changes to the ddoc, sentinel reads `ddoc.app_settings` to determine configuration.
+
+By default all transitions are disabled, to enable a transition modify the
+`transitions` property on `ddoc.app_settings`.
+
+### Transitions Configuration Examples
+
+#### Enabled
+
+A transition is enabled if the value associated with its name is [truthy](https://developer.mozilla.org/en-US/docs/Glossary/Truthy).
+
+In both of these examples all three transitions are enabled:
+
+```json
+{
+  "transitions": {
+    "registrations": true,
+    "default_responses": true,
+    "update_clinics": true
+  }
+}
+```
+
+```json 
+{
+  "transitions": {
+    "registrations": {
+      "param": "val"
+    },
+    "default_responses": {},
+    "update_clinics": {}
+  }
+}
+```
+
+#### Disabled
+
+A transition is disabled if either the value associated with its name is [falsey](https://developer.mozilla.org/en-US/docs/Glossary/Falsy), or it has `"disable"` set to `true`, or the transition is missing.
+
+In all three examples below the `registrations` transition is disabled.
+
+```json
+{
+  "transitions": {}
+}
+```
+
+```json
+{
+  "transitions": {
+    "registrations": false
+  }
+}
+```
+
+```json
+{
+  "transitions": {
+    "registrations": {
+      "disable": true
+    }
+  }
+}
+```
+
 ## Transitions API
 
 A transition does async processing of a document once per rev/change, and obeys
 the following rules:
+
+* has a `filter` function that determines if it needs to run/be applied to a
+  document.
 
 * accepts a document as a reference and makes changes using that reference,
   copying is discouraged.

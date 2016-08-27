@@ -3,12 +3,25 @@ process.env.TEST_ENV = 'hello'; // required for ../../db.js
 var _ = require('underscore'),
     db = require('../../db'),
     sinon = require('sinon'),
-    utils = require('../../lib/utils');
+    utils = require('../../lib/utils'),
+    uuid = require('uuid'),
+    config = require('../../config');
+
+var restore = function(objs) {
+    _.each(objs, function(obj) {
+        if (obj.restore) {
+            obj.restore();
+        }
+    });
+};
 
 exports.tearDown = function(callback) {
-    if (db.medic.view.restore) {
-        db.medic.view.restore();
-    }
+    restore([
+        db.medic.view,
+        config.getTranslations,
+        config.get,
+        uuid.v4
+    ]);
     callback();
 };
 
@@ -167,15 +180,15 @@ exports['addMessage adds uuid'] = function(test) {
 };
 
 exports['getRecentForm calls through to db view correctly'] = function(test) {
-    
+
     var formName = 'someForm';
     var clinicId = 'someClinicId';
     var result = [{_id: 'someRowId'}];
 
     sinon.stub(db.medic, 'view')
         .withArgs(
-            'kujua-sentinel', 
-            'data_records_by_form_and_clinic', 
+            'medic',
+            'reports_by_form_and_clinic',
             {
                 startkey: [formName, clinicId],
                 endkey: [formName, clinicId],
@@ -186,7 +199,7 @@ exports['getRecentForm calls through to db view correctly'] = function(test) {
 
     test.expect(2);
     utils.getRecentForm({
-        formName: formName, 
+        formName: formName,
         doc: {
             contact: {
                 parent: {
@@ -204,12 +217,16 @@ exports['getRecentForm calls through to db view correctly'] = function(test) {
 
 exports['addScheduledMessage creates a new scheduled task'] = function(test) {
 
-    test.expect(9);
+
+    test.expect(10);
 
     var message = 'xyz';
     var due = new Date();
     var phone = '+123';
+    var testUuid = 'test-uuid';
     var doc = {};
+
+    sinon.stub(uuid, 'v4').returns(testUuid);
 
     utils.addScheduledMessage(doc, {
         message: message,
@@ -223,124 +240,11 @@ exports['addScheduledMessage creates a new scheduled task'] = function(test) {
     test.equals(task.messages.length, 1);
     test.equals(task.messages[0].to, phone);
     test.equals(task.messages[0].message, message);
+    test.equals(task.messages[0].uuid, testUuid);
     test.equals(task.state, 'scheduled');
     test.equals(task.state_history.length, 1);
     test.equals(task.state_history[0].state, 'scheduled');
     test.ok(!!task.state_history[0].timestamp);
-
-    test.done();
-};
-
-exports['obsoleteScheduledMessages clears overdue tasks'] = function(test) {
-
-    test.expect(7);
-
-    var type = 'abc';
-    var doc = {
-        scheduled_tasks: [
-            {
-                type: type,
-                due: 999,
-                state: 'scheduled',
-                group: 'a'
-            }, {
-                type: type,
-                due: new Date().valueOf(),
-                state: 'scheduled',
-                group: 'b'
-            }, {
-                type: 'othertype',
-                due: 999,
-                state: 'scheduled',
-                group: 'c'
-            }
-        ]
-    };
-
-    var changed = utils.obsoleteScheduledMessages(doc, type, 1000);
-
-    test.equals(changed, true);
-    test.equals(doc.scheduled_tasks.length, 3);
-    test.equals(doc.scheduled_tasks[0].state, 'cleared');
-    test.equals(doc.scheduled_tasks[0].state_history[0].state, 'cleared');
-    test.ok(!!doc.scheduled_tasks[0].state_history[0].timestamp);
-    test.equals(doc.scheduled_tasks[1].state, 'scheduled');
-    test.equals(doc.scheduled_tasks[2].state, 'scheduled');
-
-    test.done();
-};
-
-exports['obsoleteScheduledMessages appends to state_history'] = function(test) {
-
-    test.expect(8);
-
-    var type = 'abc';
-    var scheduledTimestamp = 998;
-    var doc = {
-        scheduled_tasks: [{
-            type: type,
-            due: 999,
-            state: 'scheduled',
-            group: 'a',
-            state_history: [{
-                state: 'scheduled',
-                timestamp: scheduledTimestamp
-            }]
-        }]
-    };
-
-    var changed = utils.obsoleteScheduledMessages(doc, type, 1000);
-
-    test.equals(changed, true);
-    test.equals(doc.scheduled_tasks.length, 1);
-    test.equals(doc.scheduled_tasks[0].state, 'cleared');
-    test.equals(doc.scheduled_tasks[0].state_history.length, 2);
-    test.equals(doc.scheduled_tasks[0].state_history[0].state, 'scheduled');
-    test.equals(doc.scheduled_tasks[0].state_history[0].timestamp, scheduledTimestamp);
-    test.equals(doc.scheduled_tasks[0].state_history[1].state, 'cleared');
-    test.ok(!!doc.scheduled_tasks[0].state_history[1].timestamp);
-
-    test.done();
-};
-
-exports['obsoleteScheduledMessages clears groups of obsolete messages'] = function(test) {
-
-    test.expect(9);
-
-    var type = 'abc';
-    var group = 'a';
-    var doc = {
-        scheduled_tasks: [
-            {
-                type: type,
-                due: 999,
-                state: 'scheduled',
-                group: group
-            }, {
-                type: type,
-                due: new Date().valueOf(),
-                state: 'scheduled',
-                group: group
-            }, {
-                type: 'othertype',
-                due: 999,
-                state: 'scheduled',
-                group: 'othergroup'
-            }
-        ]
-    };
-
-    var changed = utils.obsoleteScheduledMessages(doc, type, 1);
-
-    test.equals(changed, true);
-    test.equals(doc.scheduled_tasks.length, 3);
-    test.equals(doc.scheduled_tasks[0].state, 'cleared');
-    test.equals(doc.scheduled_tasks[0].state_history[0].state, 'cleared');
-    test.ok(!!doc.scheduled_tasks[0].state_history[0].timestamp);
-    test.equals(doc.scheduled_tasks[1].state, 'cleared');
-    test.equals(doc.scheduled_tasks[1].state_history[0].state, 'cleared');
-    test.ok(!!doc.scheduled_tasks[1].state_history[0].timestamp);
-    test.equals(doc.scheduled_tasks[2].state, 'scheduled');
 
     test.done();
 };
@@ -441,6 +345,71 @@ exports['applyPhoneFilters performs replace'] = function(test) {
     test.equals(utils.applyPhoneFilters(config, '00101'), '9101');
     test.equals(utils.applyPhoneFilters(config, '456'), '456');
     test.equals(utils.applyPhoneFilters(config, '159841125'), '29841125');
+    test.done();
+};
 
+exports['translate returns message if key found in translations'] = function(test) {
+    sinon.stub(config, 'getTranslations').returns({
+        en: { sms_received: 'got it!' }
+    });
+    test.equals(utils.translate('sms_received'), 'got it!');
+    test.done();
+};
+
+exports['translate returns key if translations not found'] = function(test) {
+    sinon.stub(config, 'getTranslations').returns({});
+    test.equals(utils.translate('sms_received'), 'sms_received');
+    test.done();
+};
+
+exports['describe isOutgoingAllowed'] = function(test) {
+    /*
+     * Support comma separated string config to match an outgoing phone number
+     * or MNO (mobile network operator) defined string.
+     */
+    var tests = [
+      // denied
+      ['+123', '+123', false],
+      ['+123', '+123999999', false],
+      ['SAFARI', 'SAFARICOM', false],
+      ['Safari', 'SAFARICOM', false],
+      ['+123,+456,+789', '+456', false],
+      ['+123,+456,+789', '+4569999999', false],
+      ['SAFARI, ORANGE', 'ORANGE NET', false],
+      ['0', '0000123', false],
+      ['0', '0', false],
+      // allowed
+      ['+123', '+999', true],
+      ['SAFARI, ORANGE NET', 'ORANGE', true],
+      ['VIVO', 'EM VIVO', true],
+      ['0', '-1', true],
+      // allow falsey inputs
+      ['snarf', undefined, true],
+      ['snarf', null, true],
+      ['', '+123', true],
+      ['', '', true]
+    ];
+    _.each(tests, function(t) {
+      var s = sinon.stub(config, 'get');
+      s.withArgs('outgoing_deny_list').returns(t[0]);
+      test.equals(utils.isOutgoingAllowed(t[1]), t[2]);
+      s.restore();
+    });
+    test.done();
+};
+
+exports['describe _isMessageFromGateway'] = function(test) {
+    var tests = [
+      ['+774455558888', '77-44-5555-8888', true],
+      ['+774455558889', '77-44-5555-8888', false],
+      // missing country code matches
+      ['+41446681800', '446681800', true]
+    ];
+    _.each(tests, function(t) {
+      var s = sinon.stub(config, 'get');
+      s.withArgs('gateway_number').returns(t[0]);
+      test.equals(utils._isMessageFromGateway(t[1]), t[2]);
+      s.restore();
+    });
     test.done();
 };
